@@ -13,9 +13,10 @@ RUN mvn -B dependency:go-offline
 # Build the application JAR (run tests locally / in CI before container build)
 COPY src ./src
 RUN mvn -B package -DskipTests \
-    && JAR_PATH=$(ls target/*.jar | head -n 1) \
+    && JAR_PATH=$(ls target/*.jar | grep -v '\.original$' | head -n 1) \
     && java -Djarmode=tools -jar "$JAR_PATH" extract --layers --destination extracted \
-    && mkdir -p extracted/dependencies extracted/spring-boot-loader extracted/snapshot-dependencies extracted/application
+    && mkdir -p extracted/dependencies extracted/snapshot-dependencies extracted/application \
+    && mv extracted/application/*.jar extracted/application/app.jar
 
 # =============================================================================
 # Stage 2: Minimal JRE Runtime Container (Tuned for Render 512 MB Free Tier)
@@ -28,7 +29,6 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy extracted layers from least to most frequently changed
 COPY --from=builder --chown=appuser:appgroup /workspace/extracted/dependencies/ ./
-COPY --from=builder --chown=appuser:appgroup /workspace/extracted/spring-boot-loader/ ./
 COPY --from=builder --chown=appuser:appgroup /workspace/extracted/snapshot-dependencies/ ./
 COPY --from=builder --chown=appuser:appgroup /workspace/extracted/application/ ./
 
@@ -45,5 +45,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
     CMD wget -qO- "http://127.0.0.1:${PORT}/api/health" >/dev/null || exit 1
 
-ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 
